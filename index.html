@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <title>Web Catur - Stockfish Lokal</title>
+    <title>Web Catur - Bot Lichess</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f4f4f9; padding-top: 20px; }
@@ -12,9 +12,9 @@
 </head>
 <body>
 
-    <h2>Latihan Catur vs Bot Lokal</h2>
+    <h2>Latihan Catur vs Bot Lichess</h2>
     <div id="myBoard"></div>
-    <div id="status">Memuat bot...</div>
+    <div id="status">Siap! Silakan jalan.</div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
@@ -23,33 +23,32 @@
     <script>
         var board = null;
         var game = new Chess();
-        // Menggunakan Worker agar bot berjalan di latar belakang (tidak membekukan web)
-        var stockfish = new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/16.0.0/stockfish.js');
 
         function onDrop(source, target) {
             var move = game.move({ from: source, to: target, promotion: 'q' });
             if (move === null) return 'snapback';
             
             board.position(game.fen());
-            $('#status').html('Bot sedang berpikir...');
+            $('#status').html('Bot berpikir...');
             
-            // Perintah ke Stockfish
-            stockfish.postMessage('position fen ' + game.fen());
-            stockfish.postMessage('go depth 12');
+            // Menggunakan API pihak ketiga yang membungkus Stockfish dan mengizinkan akses CORS
+            fetch('https://stockfish.online/api/s/v2.php?fen=' + encodeURIComponent(game.fen()) + '&depth=8')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    var bestMove = data.data.split(' ')[1];
+                    game.move({
+                        from: bestMove.substring(0, 2),
+                        to: bestMove.substring(2, 4),
+                        promotion: 'q'
+                    });
+                    board.position(game.fen());
+                    $('#status').html('Giliran Anda');
+                } else {
+                    $('#status').html('Bot sedang sibuk.');
+                }
+            });
         }
-
-        stockfish.onmessage = function(event) {
-            if (event.data.startsWith('bestmove')) {
-                var bestMove = event.data.split(' ')[1];
-                game.move({
-                    from: bestMove.substring(0, 2),
-                    to: bestMove.substring(2, 4),
-                    promotion: 'q'
-                });
-                board.position(game.fen());
-                $('#status').html('Giliran Anda');
-            }
-        };
 
         var config = {
             draggable: true,
@@ -58,10 +57,6 @@
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         };
         board = Chessboard('myBoard', config);
-        
-        // Inisialisasi bot
-        stockfish.postMessage('uci');
-        $('#status').html('Bot Siap. Silakan jalan!');
     </script>
 </body>
 </html>
