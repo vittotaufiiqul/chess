@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Catur - Latihan Melawan Bot</title>
+    
+    <!-- CSS untuk Papan Catur -->
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+    
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            background-color: #f4f4f9; 
+            margin-top: 40px; 
+        }
+        h2 { color: #333; margin-bottom: 10px; text-align: center; }
+        
+        #controls {
+            margin-bottom: 20px;
+            background: #fff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        select, button {
+            font-size: 16px;
+            padding: 5px 10px;
+        }
+        button {
+            cursor: pointer;
+            background-color: #2c3e50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #1a252f;
+        }
+
+        #myBoard { 
+            width: 400px; 
+            margin-bottom: 20px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); 
+        }
+        #status { 
+            font-weight: bold; 
+            font-size: 1.2em; 
+            color: #2c3e50; 
+            background: #fff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: center;
+            min-width: 250px;
+        }
+        .error-text { color: #e74c3c !important; }
+        .thinking-text { color: #f39c12 !important; }
+    </style>
+</head>
+<body>
+
+    <h2>Latihan Catur vs Bot Kalkulator</h2>
+    
+    <!-- Area Kontrol Permainan -->
+    <div id="controls">
+        <label for="colorSelect">Bermain sebagai: </label>
+        <select id="colorSelect">
+            <option value="w">Putih</option>
+            <option value="b">Hitam</option>
+        </select>
+        <button onclick="resetGame()">Mulai Ulang Permainan</button>
+    </div>
+    
+    <!-- Area Papan Catur -->
+    <div id="myBoard"></div>
+    
+    <!-- Area Status Permainan -->
+    <div id="status">Giliran Putih</div>
+
+    <!-- Pustaka yang dibutuhkan -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+    <script>
+        var board = null;
+        var game = new Chess();
+        var $status = $('#status');
+        var playerColor = 'w'; 
+        var isBotThinking = false; 
+
+        function resetGame() {
+            game.reset();
+            playerColor = $('#colorSelect').val();
+            isBotThinking = false;
+            
+            var boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+            board.orientation(boardOrientation);
+            board.position('start');
+            updateStatus();
+
+            if (playerColor === 'b') {
+                window.setTimeout(makeBotMove, 250);
+            }
+        }
+
+        function onDragStart(source, piece, position, orientation) {
+            if (game.game_over() || isBotThinking) return false;
+            if (game.turn() !== playerColor) return false;
+            if ((playerColor === 'w' && piece.search(/^b/) !== -1) ||
+                (playerColor === 'b' && piece.search(/^w/) !== -1)) {
+                return false;
+            }
+        }
+
+        function onDrop(source, target) {
+            var move = game.move({
+                from: source,
+                to: target,
+                promotion: 'q' 
+            });
+
+            if (move === null) return 'snapback';
+
+            updateStatus();
+            window.setTimeout(makeBotMove, 250);
+        }
+
+        function makeBotMove() {
+            if (game.game_over()) return;
+
+            isBotThinking = true;
+            $status.removeClass('error-text').addClass('thinking-text');
+            $status.html('Bot sedang mengkalkulasi...');
+
+            var fen = game.fen();
+
+            // API Utama: chess-api.com
+            fetch('https://chess-api.com/v1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fen: fen, depth: 10 }) 
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.from && data.to) {
+                    eksekusiLangkahBot(data.from, data.to, data.promotion);
+                } else {
+                    console.warn("API Utama gagal memberikan data langkah. Beralih ke API cadangan...");
+                    gunakanApiCadangan(fen);
+                }
+            })
+            .catch(error => {
+                console.warn("API Utama down. Beralih ke API cadangan...");
+                gunakanApiCadangan(fen);
+            });
+        }
+
+        // Fungsi API Cadangan
+        function gunakanApiCadangan(fen) {
+            var url = 'https://stockfish.online/api/s/v2.php?fen=' + encodeURIComponent(fen) + '&depth=10';
+            
+            fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    var bestMoveStr = data.data.split(' ')[1]; 
+                    var fromSq = bestMoveStr.substring(0, 2); 
+                    var toSq = bestMoveStr.substring(2, 4);   
+                    var promo = bestMoveStr.length > 4 ? bestMoveStr.substring(4, 5) : 'q';
+                    
+                    eksekusiLangkahBot(fromSq, toSq, promo);
+                } else {
+                    tampilkanError('Error: Kedua API Bot sedang sibuk/down.');
+                }
+            })
+            .catch(error => {
+                tampilkanError('Error Jaringan: Gagal menghubungi semua server bot.');
+            });
+        }
+
+        // Fungsi eksekusi agar kode lebih rapi
+        function eksekusiLangkahBot(from, to, promotion) {
+            var move = game.move({
+                from: from,
+                to: to,
+                promotion: promotion || 'q'
+            });
+
+            isBotThinking = false;
+
+            if (move === null) {
+                tampilkanError('Error: Bot mencoba langkah tidak sah.');
+            } else {
+                board.position(game.fen());
+                updateStatus();
+            }
+        }
+
+        // Fungsi untuk menampilkan error di layar
+        function tampilkanError(pesan) {
+            isBotThinking = false;
+            $status.removeClass('thinking-text').addClass('error-text');
+            $status.html(pesan);
+        }
+
+        function onSnapEnd() {
+            board.position(game.fen());
+        }
+
+        function updateStatus() {
+            $status.removeClass('error-text thinking-text');
+            var statusHTML = '';
+            var moveColor = (game.turn() === 'w') ? 'Putih' : 'Hitam';
+
+            if (game.in_checkmate()) {
+                statusHTML = 'Skakmat! ' + moveColor + ' kalah.';
+            } else if (game.in_draw()) {
+                statusHTML = 'Permainan Seri!';
+            } else {
+                statusHTML = 'Giliran ' + moveColor;
+                if (game.in_check()) {
+                    statusHTML += ' (Awas Skak!)';
+                }
+            }
+            $status.html(statusHTML);
+        }
+
+        var config = {
+            draggable: true,
+            position: 'start',
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        };
+
+        board = Chessboard('myBoard', config);
+        updateStatus();
+    </script>
+</body>
+</html>
